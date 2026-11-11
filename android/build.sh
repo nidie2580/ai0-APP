@@ -32,7 +32,7 @@ $AAPT2 link -o base.apk -I $ANDROID_JAR \
 echo "[3/6] javac"
 find $PROJ/src -name '*.java' > srcs.txt
 [ -d gen ] && find $BUILD/gen -name '*.java' >> srcs.txt
-javac -source 8 -target 8 -bootclasspath $ANDROID_JAR -d classes @srcs.txt 2>&1 | grep -v 'bootstrap class path' > javac.log || true
+javac -source 8 -target 8 -bootclasspath "$ANDROID_JAR:$SDK/build-tools/35.0.0/core-lambda-stubs.jar" -d classes @srcs.txt 2>&1 | grep -v 'bootstrap class path' > javac.log || true
 if grep -q "error:" javac.log 2>/dev/null; then echo "!! javac 报错："; head -15 javac.log; exit 1; fi
 [ -f classes/cn/ai0/app/MainActivity.class ] || { echo "!! 缺少 MainActivity.class"; head -20 javac.log; exit 1; }
 
