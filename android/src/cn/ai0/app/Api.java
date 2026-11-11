@@ -152,4 +152,32 @@ public class Api {
             finish(cb, f);
         }).start();
     }
+
+    /** 绑定码绑定：POST /api/ext/app-manager/pair（免登录，绑定码一次性） */
+    public static void pair(String url, String code, Cb cb) {
+        new Thread(() -> {
+            JSONObject out;
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(url + "api/ext/app-manager/pair").openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(15000);
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setDoOutput(true);
+                OutputStream os = c.getOutputStream();
+                os.write(new JSONObject().put("code", code).toString().getBytes(StandardCharsets.UTF_8));
+                os.close();
+                out = new JSONObject(read(c));
+                if (out.optBoolean("ok")) {
+                    saveUrl(url);
+                    saveAuth(out.optString("session"), out.optString("csrf"),
+                            out.optString("identity", "app-binding"));
+                }
+            } catch (Exception e) {
+                out = err("绑定失败: " + e.getMessage());
+            }
+            final JSONObject f = out;
+            finish(cb, f);
+        }).start();
+    }
 }
