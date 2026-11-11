@@ -190,10 +190,10 @@ public class MainActivity extends Activity {
         codeForm = new LinearLayout(this);
         codeForm.setOrientation(LinearLayout.VERTICAL);
         codeForm.addView(fieldLabel("身份（QQ 号或 stdin）"));
-        fQq = input(Api.identity(), InputType.TYPE_CLASS_NUMBER);
+        fQq = input(Api.identity(), InputType.TYPE_CLASS_TEXT);
         codeForm.addView(fQq);
         codeForm.addView(fieldLabel("登录验证码"));
-        fCode = input("", InputType.TYPE_CLASS_NUMBER);
+        fCode = input("", InputType.TYPE_CLASS_TEXT);
         codeForm.addView(fCode);
         TextView cBtn = button("登 录");
         cBtn.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
