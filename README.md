@@ -13,17 +13,18 @@ extension/            ai0-plugin 扩展（放到 plugins/ai0-plugin/extensions/a
 android/              原生 Android 客户端（无 Gradle：aapt2 + javac + d8 + apksigner）
 ├── AndroidManifest.xml
 ├── src/cn/ai0/app/
-│   ├── MainActivity.java   登录页 + 首页/模型/设置 三 Tab
-│   ├── Api.java            会话/CSRF/登录（含异身份审批轮询）
-│   ├── GaugeView.java      圆弧仪表盘（CPU/内存/磁盘）
-│   └── …
+│   ├── MainActivity.java   首页/模型/设置 + 右下角 + 号绑定
+│   ├── ScanActivity.java   扫码绑定（Camera + ZXing）
+│   ├── Api.java            会话/CSRF/绑定/登录
+│   └── res/drawable/       矢量图标（无 emoji）
 └── build.sh
 ```
 
 ## 客户端功能（v1.1.0）
 
-- **绑定**（推荐）：后台「App 管理」页生成绑定码/二维码 → App「绑定码绑定」输入，或系统相机扫 `ai0://bind?u=…&c=…` 自动拉起绑定
-- **验证码登录**：服务器地址 + 身份(QQ/stdin) + 验证码（网页后台同一套 `/api/login/code`，异身份自动轮询审批）
+- **直接进首页**：不设登录页；未绑定时首页显示空态，右下角 **+** 打开绑定面板
+- **绑定**：绑定码输入 / App 内扫码（Camera+ZXing）/ 系统相机扫 `ai0://bind` 深链
+- **验证码登录**：绑定面板里的备用入口（QQ + 验证码）
 - **首页**：服务器 CPU / 内存 / 磁盘 圆弧仪表 + 负载 + 运行时长；插件默认模型 / 模型数 / Agent 开关
 - **模型**：列表 + 一键「设为默认」
 - **设置**：改服务器地址、退出登录、关于
@@ -57,6 +58,7 @@ AI0APP_KS=/path/ai0app.keystore AI0APP_KS_PASS=xxx sh build.sh
 ```
 
 依赖 aapt2 / android.jar / d8 / apksigner（脚本里 aapt2 默认带 `qemu-x86_64` 前缀，x86_64 机器删掉即可）。
+扫码依赖 ZXing core：`ZXING_JAR=/path/core-3.5.3.jar sh build.sh`（默认 /tmp/zxing-core.jar）。
 keystore 不入库（CN=AI0）。
 
 ## 许可
