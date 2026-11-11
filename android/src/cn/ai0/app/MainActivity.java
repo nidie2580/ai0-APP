@@ -1,6 +1,8 @@
 package cn.ai0.app;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -33,12 +35,50 @@ public class MainActivity extends Activity {
     private GaugeView gCpu, gMem, gDisk;
     private TextView vLoad, vUptime, vDefModel, vModelCount, vAgent, homeMsg;
 
+    private String pendingBindUrl, pendingBindCode;
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         Api.init(this);
-        if (Api.session().isEmpty()) buildLogin();
-        else buildMain();
+        handleBind(getIntent());
+        if (Api.session().isEmpty()) {
+            buildLogin();
+            applyPendingBind();
+        } else {
+            buildMain();
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        handleBind(i);
+        applyPendingBind();
+    }
+
+    /** 处理 ai0://bind?u=<面板地址>&c=<绑定码> 扫码深链 */
+    private void handleBind(Intent i) {
+        if (i == null || i.getData() == null) return;
+        Uri d = i.getData();
+        if (!"bind".equals(d.getHost())) return;
+        try {
+            String u = d.getQueryParameter("u");
+            String c = d.getQueryParameter("c");
+            if (u == null || c == null) return;
+            if (!u.endsWith("/")) u = u + "/";
+            if (!Api.session().isEmpty()) { toast("已绑定；如需换绑请先在设置页退出"); return; }
+            pendingBindUrl = u;
+            pendingBindCode = c;
+        } catch (Exception e) { }
+    }
+
+    private void applyPendingBind() {
+        if (pendingBindUrl == null || fUrl == null) return;
+        String u = pendingBindUrl, c = pendingBindCode;
+        pendingBindUrl = null;
+        pendingBindCode = null;
+        autoPair(u, c);
     }
 
     private int dp(float v) { return Math.round(getResources().getDisplayMetrics().density * v); }
@@ -93,70 +133,135 @@ public class MainActivity extends Activity {
 
     private void setKv(LinearLayout row, String val) { ((TextView) row.getTag()).setText(val); }
 
-    /* ---------------- 登录 ---------------- */
+    /* ---------------- 登录 / 绑定 ---------------- */
 
-    private void buildLogin() {
-        setContentView(loginRoot());
-    }
+    private EditText fUrl, fBind, fQq, fCode;
+    private LinearLayout bindForm, codeForm;
+    private TextView tabBind, tabCode, bindBtn;
+
+    private void buildLogin() { setContentView(loginRoot()); }
 
     private View loginRoot() {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
         scroll.setFillViewport(true);
-
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(28), dp(48), dp(28), dp(24));
+        box.setPadding(dp(28), dp(40), dp(28), dp(24));
         scroll.addView(box, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView logo = text("AI0 助手", 26, FG, true);
         logo.setGravity(Gravity.CENTER);
         box.addView(logo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView sub = text("ai0-plugin 原生管理端", 13, MUT, false);
+        TextView sub = text("绑定后默认进入首页管理台", 13, MUT, false);
         sub.setGravity(Gravity.CENTER);
-        sub.setPadding(0, dp(4), 0, dp(24));
+        sub.setPadding(0, dp(4), 0, dp(18));
         box.addView(sub, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         box.addView(fieldLabel("服务器地址"));
-        final EditText url = input(Api.baseUrl(), InputType.TYPE_TEXT_VARIATION_URI);
-        box.addView(url);
-        box.addView(fieldLabel("身份（QQ 号或 stdin）"));
-        final EditText qq = input(Api.identity(), InputType.TYPE_CLASS_NUMBER);
-        box.addView(qq);
-        box.addView(fieldLabel("登录验证码"));
-        final EditText code = input("", InputType.TYPE_CLASS_NUMBER);
-        box.addView(code);
+        fUrl = input(Api.baseUrl(), InputType.TYPE_TEXT_VARIATION_URI);
+        box.addView(fUrl);
 
-        LinearLayout gap = new LinearLayout(this);
-        gap.setPadding(0, dp(10), 0, dp(10));
-        box.addView(gap);
+        LinearLayout modes = new LinearLayout(this);
+        modes.setOrientation(LinearLayout.HORIZONTAL);
+        modes.setPadding(dp(8), dp(12), dp(8), dp(4));
+        tabBind = text("绑定码绑定", 14, ACC, true);
+        tabCode = text("验证码登录", 14, MUT, false);
+        tabBind.setGravity(Gravity.CENTER);
+        tabCode.setGravity(Gravity.CENTER);
+        tabBind.setOnClickListener(v -> setMode(true));
+        tabCode.setOnClickListener(v -> setMode(false));
+        modes.addView(tabBind, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        modes.addView(tabCode, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(modes);
 
-        final TextView btn = button("登 录");
-        btn.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
-        btn.setOnClickListener(v -> {
-            String u = url.getText().toString().trim();
-            String id = qq.getText().toString().trim();
-            String cd = code.getText().toString().trim();
-            if (u.isEmpty() || id.isEmpty() || cd.isEmpty()) {
-                toast("请填写完整"); return;
-            }
-            if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://" + u;
-            if (!u.endsWith("/")) u = u + "/";
-            Api.saveUrl(u);
-            btn.setEnabled(false);
-            btn.setText("登录中…");
-            Api.login(id, cd, j -> {
-                btn.setEnabled(true);
-                btn.setText("登 录");
-                if (j.optBoolean("ok")) {
-                    buildMain();
-                } else {
-                    toast(j.optString("msg", "登录失败"));
-                }
-            });
-        });
-        box.addView(btn);
+        bindForm = new LinearLayout(this);
+        bindForm.setOrientation(LinearLayout.VERTICAL);
+        bindForm.addView(fieldLabel("绑定码（后台「App 管理」页生成，或扫二维码）"));
+        fBind = input("", InputType.TYPE_CLASS_TEXT);
+        fBind.setTextSize(20);
+        bindForm.addView(fBind);
+        bindBtn = button("绑 定");
+        bindBtn.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        bindBtn.setOnClickListener(v -> doPair());
+        bindForm.addView(bindBtn);
+        box.addView(bindForm);
+
+        codeForm = new LinearLayout(this);
+        codeForm.setOrientation(LinearLayout.VERTICAL);
+        codeForm.addView(fieldLabel("身份（QQ 号或 stdin）"));
+        fQq = input(Api.identity(), InputType.TYPE_CLASS_NUMBER);
+        codeForm.addView(fQq);
+        codeForm.addView(fieldLabel("登录验证码"));
+        fCode = input("", InputType.TYPE_CLASS_NUMBER);
+        codeForm.addView(fCode);
+        TextView cBtn = button("登 录");
+        cBtn.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        cBtn.setOnClickListener(v -> doLogin());
+        codeForm.addView(cBtn);
+        box.addView(codeForm);
+
+        TextView tip = text("没有绑定码？网页后台 → 扩展 → App 管理 → 生成绑定码", 12, MUT, false);
+        tip.setPadding(0, dp(14), 0, 0);
+        box.addView(tip);
+
+        setMode(true);
         return scroll;
+    }
+
+    private void setMode(boolean bind) {
+        bindForm.setVisibility(bind ? View.VISIBLE : View.GONE);
+        codeForm.setVisibility(bind ? View.GONE : View.VISIBLE);
+        tabBind.setTextColor(bind ? ACC : MUT);
+        tabCode.setTextColor(bind ? MUT : ACC);
+    }
+
+    private String normUrl(String u) {
+        if (u == null) return "";
+        u = u.trim();
+        if (u.isEmpty()) return "";
+        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://" + u;
+        if (!u.endsWith("/")) u = u + "/";
+        return u;
+    }
+
+    private void doPair() {
+        String u = normUrl(fUrl.getText().toString());
+        String c = fBind.getText().toString().trim().toUpperCase();
+        if (u.isEmpty() || c.isEmpty()) { toast("请填写服务器地址和绑定码"); return; }
+        Api.saveUrl(u);
+        bindBtn.setEnabled(false);
+        bindBtn.setText("绑定中…");
+        Api.pair(u, c, j -> {
+            bindBtn.setEnabled(true);
+            bindBtn.setText("绑 定");
+            if (j.optBoolean("ok")) buildMain();
+            else toast(j.optString("msg", "绑定失败"));
+        });
+    }
+
+    private void autoPair(String u, String c) {
+        setMode(true);
+        fUrl.setText(u);
+        fBind.setText(c);
+        Api.saveUrl(u);
+        toast("扫码成功，正在绑定…");
+        Api.pair(u, c, j -> {
+            if (j.optBoolean("ok")) buildMain();
+            else toast(j.optString("msg", "自动绑定失败，请手动输入绑定码"));
+        });
+    }
+
+    private void doLogin() {
+        String u = normUrl(fUrl.getText().toString());
+        String id = fQq.getText().toString().trim();
+        String cd = fCode.getText().toString().trim();
+        if (u.isEmpty() || id.isEmpty() || cd.isEmpty()) { toast("请填写完整"); return; }
+        Api.saveUrl(u);
+        Api.login(id, cd, j -> {
+            if (j.optBoolean("ok")) buildMain();
+            else toast(j.optString("msg", "登录失败"));
+        });
     }
 
     private TextView fieldLabel(String s) {
