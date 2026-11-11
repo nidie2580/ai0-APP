@@ -39,6 +39,22 @@ button.ghost { background:transparent; border:1px solid var(--line); color:var(-
     <button class="ghost" id="refresh">刷新</button>
   </div>
 
+  <div class="card">
+    <div class="row" style="margin-bottom:8px"><b>App 绑定</b><button id="genPair" style="padding:6px 12px">生成绑定码</button></div>
+    <div id="pairBody" style="display:none">
+      <div style="display:flex;gap:14px;align-items:center">
+        <div id="bindQr" style="background:#fff;padding:8px;border-radius:8px;flex:0 0 auto;line-height:0"></div>
+        <div style="min-width:0">
+          <div class="muted" style="font-size:12px">绑定码 · 10 分钟有效 · 一次性</div>
+          <div id="bindCode" style="font-size:22px;letter-spacing:3px;font-weight:700;margin:6px 0">--------</div>
+          <div class="muted" id="bindTtl" style="font-size:12px"></div>
+          <div class="muted" style="font-size:12px;margin-top:6px">在 App「绑定码登录」里输入，或用系统相机扫码自动绑定</div>
+        </div>
+      </div>
+    </div>
+    <div class="muted" id="bindMsg" style="font-size:12px;margin-top:6px">生成后 10 分钟内有效，绑定一次即失效</div>
+  </div>
+
   <div class="card" id="statusCard"><div class="muted">加载中…</div></div>
   <div class="card">
     <div class="row" style="margin-bottom:6px"><b>模型</b><span class="muted" id="modelHint"></span></div>
@@ -46,6 +62,7 @@ button.ghost { background:transparent; border:1px solid var(--line); color:var(-
   </div>
   <div class="foot">ai0-APP · App 管理 v1.0.0</div>
 
+<script src="qrcode.js"></script>
 <script>
 const API = '/api/ext/app-manager';
 const $ = (s) => document.querySelector(s);
@@ -98,6 +115,31 @@ async function setDefault(key, btn) {
   await load();
 }
 $('#refresh').addEventListener('click', load);
+let pairTimer = null;
+async function genPair() {
+  const btn = $('#genPair'), msg = $('#bindMsg');
+  btn.disabled = true; btn.textContent = '生成中…';
+  const r = await api('/pair-code', { body: {} });
+  btn.disabled = false; btn.textContent = '重新生成';
+  if (!r.ok) { msg.textContent = r.msg || '生成失败'; return; }
+  $('#pairBody').style.display = '';
+  $('#bindCode').textContent = r.code;
+  msg.textContent = '已生成，请尽快绑定';
+  try {
+    const data = 'ai0://bind?u=' + encodeURIComponent(location.origin + '/') + '&c=' + r.code;
+    const qr = qrcode(0, 'M'); qr.addData(data); qr.make();
+    $('#bindQr').innerHTML = qr.createSvgTag(4, 2);
+  } catch (e) { $('#bindQr').innerHTML = ''; }
+  let left = r.ttl || 600;
+  if (pairTimer) clearInterval(pairTimer);
+  pairTimer = setInterval(function () {
+    left--;
+    if (left <= 0) { clearInterval(pairTimer); $('#bindTtl').textContent = '已过期，请重新生成'; return; }
+    $('#bindTtl').textContent = '剩余 ' + Math.floor(left / 60) + ':' + ('0' + left % 60).slice(-2);
+  }, 1000);
+}
+$('#genPair').addEventListener('click', genPair);
+
 load();
 </script>
 </body>
