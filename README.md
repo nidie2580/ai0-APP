@@ -22,7 +22,8 @@ android/              原生 Android 客户端（无 Gradle：aapt2 + javac + d8
 
 ## 客户端功能（v1.1.0）
 
-- **登录**：服务器地址 + 身份(QQ/stdin) + 验证码（网页后台同一套 `/api/login/code`，异身份自动轮询审批）
+- **绑定**（推荐）：后台「App 管理」页生成绑定码/二维码 → App「绑定码绑定」输入，或系统相机扫 `ai0://bind?u=…&c=…` 自动拉起绑定
+- **验证码登录**：服务器地址 + 身份(QQ/stdin) + 验证码（网页后台同一套 `/api/login/code`，异身份自动轮询审批）
 - **首页**：服务器 CPU / 内存 / 磁盘 圆弧仪表 + 负载 + 运行时长；插件默认模型 / 模型数 / Agent 开关
 - **模型**：列表 + 一键「设为默认」
 - **设置**：改服务器地址、退出登录、关于
@@ -42,6 +43,8 @@ mv app-manager-tmp/extension app-manager && rm -rf app-manager-tmp
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/status` | 默认模型 / 模型数 / Agent 开关 / AI 群数 |
+| POST | `/pair-code` | 生成绑定码（需登录+CSRF，10 分钟一次性） |
+| POST | `/pair` | 免登录绑定：验码 → 签发会话（每 IP 6 次/分钟限速） |
 | GET | `/metrics` | CPU% / 内存 / 磁盘 / 负载 / 运行时长（250ms 采样） |
 | GET | `/models` | 模型列表（密钥只返回是否已配置） |
 | POST | `/default-model` | `{ "key": "deepseek-flash" }` 切换默认模型（CSRF） |
