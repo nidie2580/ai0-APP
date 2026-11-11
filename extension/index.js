@@ -1,13 +1,20 @@
 /**
- * App 管理扩展
+ * App 管理扩展 v1.1
  *
- * 提供给移动端的最小管理面：状态概览、模型列表、切换默认模型。
- * 路由已由主插件挂在 /api/ext/app-manager 并强制登录；写操作额外要求 CSRF。
+ * 面板能力：状态 / 指标 / 模型 / 切默认模型 / 生成绑定码
+ * 绑定流程：
+ *   1. 网页后台「App 管理」页点「生成绑定码」（需登录，10 分钟有效、一次性）
+ *   2. App 输入绑定码，或扫二维码（ai0://bind?u=<面板地址>&c=<绑定码>）
+ *   3. POST /api/ext/app-manager/pair（免登录、限速）→ 校验通过签发会话
  */
 import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
+import crypto from 'node:crypto'
+import { issueSession } from '../../src/auth.js'
+import { getPrimaryIdentity } from '../../src/loginGuard.js'
 
-export default function register({ router, cfg, requireCsrf, logger }) {
+export default function register({ router, app, cfg, logger, requireCsrf, dataDir }) {
   const getCfg = () => {
     try { return cfg.loadConfig() || {} } catch (_) { return {} }
   }
@@ -23,6 +30,8 @@ export default function register({ router, cfg, requireCsrf, logger }) {
     return out
   }
 
+  /* ---------------- 状态 / 模型 ---------------- */
+
   router.get('/status', (req, res) => {
     const c = getCfg()
     const models = modelEntries(c)
@@ -36,20 +45,6 @@ export default function register({ router, cfg, requireCsrf, logger }) {
         groupCount: Array.isArray(c.chat && c.chat.globalAIGroups) ? c.chat.globalAIGroups.length : 0
       }
     })
-  })
-
-  router.get('/models', (req, res) => {
-    const c = getCfg()
-    const def = (c.model && c.model.default) || ''
-    const list = modelEntries(c).map(({ key, value }) => ({
-      key,
-      name: value.name || key,
-      kind: value.kind || 'custom',
-      vision: Array.isArray(value.scopes) ? value.scopes.includes('vision') : !!value.vision,
-      hasKey: !!String(value.apiKey || '').trim(),
-      isDefault: key === def
-    }))
-    res.json({ ok: true, default: def, list })
   })
 
   router.get('/metrics', (req, res) => {
@@ -75,6 +70,20 @@ export default function register({ router, cfg, requireCsrf, logger }) {
     }, 250)
   })
 
+  router.get('/models', (req, res) => {
+    const c = getCfg()
+    const def = (c.model && c.model.default) || ''
+    const list = modelEntries(c).map(({ key, value }) => ({
+      key,
+      name: value.name || key,
+      kind: value.kind || 'custom',
+      vision: Array.isArray(value.scopes) ? value.scopes.includes('vision') : !!value.vision,
+      hasKey: !!String(value.apiKey || '').trim(),
+      isDefault: key === def
+    }))
+    res.json({ ok: true, default: def, list })
+  })
+
   router.post('/default-model', requireCsrf, (req, res) => {
     const key = String((req.body && req.body.key) || '').trim()
     if (!key) return res.json({ ok: false, msg: '缺少模型 key' })
@@ -91,5 +100,66 @@ export default function register({ router, cfg, requireCsrf, logger }) {
       return res.json({ ok: false, msg: '保存失败，请检查 config.yaml 权限' })
     }
     res.json({ ok: true, msg: '已切换默认模型', key })
+  })
+
+  /* ---------------- 绑定码 ---------------- */
+
+  const PAIR_FILE = path.join(dataDir, 'app-manager-pairing.json')
+  const readPair = () => {
+    try {
+      const r = JSON.parse(fs.readFileSync(PAIR_FILE, 'utf8'))
+      return { code: typeof r.code === 'string' ? r.code : null, expires: +r.expires || 0, used: !!r.used }
+    } catch (_) { return { code: null, expires: 0, used: true } }
+  }
+
+  const savePair = () => {
+    try {
+      fs.writeFileSync(PAIR_FILE, JSON.stringify(pair))
+      try { fs.chmodSync(PAIR_FILE, 0o600) } catch (_) {}
+    } catch (e) { logger.warn(`[app-manager] 绑定码持久化失败: ${e.message}`) }
+  }
+
+  // 生成绑定码（需登录 + CSRF）
+  router.post('/pair-code', requireCsrf, (req, res) => {
+    const p = {
+      code: crypto.randomBytes(4).toString('hex').toUpperCase(),
+      expires: Date.now() + 10 * 60 * 1000,
+      used: false
+    }
+    try {
+      fs.writeFileSync(PAIR_FILE, JSON.stringify(p))
+      try { fs.chmodSync(PAIR_FILE, 0o600) } catch (_) {}
+    } catch (e) { logger.warn(`[app-manager] 绑定码持久化失败: ${e.message}`) }
+    res.json({ ok: true, code: p.code, ttl: 600 })
+  })
+
+  // 绑定（免登录；内存级限速：每 IP 每分钟 6 次）
+  const pairHits = new Map()
+  const pairRate = (ip) => {
+    const now = Date.now()
+    const win = now - 60 * 1000
+    const arr = (pairHits.get(ip) || []).filter((t) => t > win)
+    if (arr.length >= 6) return false
+    arr.push(now)
+    pairHits.set(ip, arr)
+    if (pairHits.size > 500) for (const [k, v] of pairHits) if (!v.length) pairHits.delete(k)
+    return true
+  }
+
+  app.post('/api/ext/app-manager/pair', (req, res) => {
+    const ip = String(req.clientIp || req.ip || 'unknown')
+    if (!pairRate(ip)) return res.status(429).json({ ok: false, msg: '尝试过于频繁，请稍后再试' })
+    const code = String((req.body && req.body.code) || '').trim().toUpperCase()
+    if (!code) return res.json({ ok: false, msg: '缺少绑定码' })
+    const p = readPair()
+    if (!p.code || p.used || Date.now() > p.expires) {
+      return res.json({ ok: false, msg: '绑定码无效或已过期，请在网页后台重新生成' })
+    }
+    if (code !== p.code) return res.json({ ok: false, msg: '绑定码不正确' })
+    try { fs.writeFileSync(PAIR_FILE, JSON.stringify({ ...p, used: true })) } catch (_) {}
+    const identity = getPrimaryIdentity() || 'app-binding'
+    const s = issueSession(ip, identity)
+    logger.info?.(`[app-manager] App 绑定成功（身份 ${identity}，IP ${ip}）`)
+    res.json({ ok: true, session: s.token, csrf: s.csrf, identity })
   })
 }
