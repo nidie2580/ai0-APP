@@ -1,59 +1,60 @@
 # ai0-APP
 
-ai0-plugin 的移动端管理扩展 + 配套 Android 客户端。
+ai0-plugin 的移动端管理：**原生 Android 客户端**（非 WebView）+ 配套「App 管理」扩展。
 
 ## 组成
 
 ```
 extension/            ai0-plugin 扩展（放到 plugins/ai0-plugin/extensions/app-manager/）
 ├── manifest.json
-├── index.js          管理 API：状态 / 模型列表 / 切换默认模型
-└── web/index.html    移动端管理页（挂在 /ext/app-manager/）
+├── index.js          管理 API：状态 / 指标 / 模型列表 / 切换默认模型
+└── web/index.html    备用移动端网页（挂在 /ext/app-manager/）
 
-android/              Android 客户端（WebView 壳，打包管理页）
+android/              原生 Android 客户端（无 Gradle：aapt2 + javac + d8 + apksigner）
 ├── AndroidManifest.xml
-├── src/cn/ai0/app/MainActivity.java
-├── res/…             图标与文案
-└── build.sh          无 Gradle 构建脚本（aapt2 + javac + d8 + apksigner）
+├── src/cn/ai0/app/
+│   ├── MainActivity.java   登录页 + 首页/模型/设置 三 Tab
+│   ├── Api.java            会话/CSRF/登录（含异身份审批轮询）
+│   ├── GaugeView.java      圆弧仪表盘（CPU/内存/磁盘）
+│   └── …
+└── build.sh
 ```
+
+## 客户端功能（v1.1.0）
+
+- **登录**：服务器地址 + 身份(QQ/stdin) + 验证码（网页后台同一套 `/api/login/code`，异身份自动轮询审批）
+- **首页**：服务器 CPU / 内存 / 磁盘 圆弧仪表 + 负载 + 运行时长；插件默认模型 / 模型数 / Agent 开关
+- **模型**：列表 + 一键「设为默认」
+- **设置**：改服务器地址、退出登录、关于
+- 会话存本地，请求带 `x-ai0-session` 头，写操作带 `x-csrf-token`
 
 ## 安装扩展
 
 ```bash
-# 在服务器上
 cd /root/XRK-Yunzai/plugins/ai0-plugin/extensions
 git clone https://github.com/nidie2580/ai0-APP.git app-manager-tmp
-mv app-manager-tmp/extension app-manager
-rm -rf app-manager-tmp
-systemctl restart xrk-yunzai   # 或 pkill -9 -x XRK-Yunzai，守护脚本会拉起
+mv app-manager-tmp/extension app-manager && rm -rf app-manager-tmp
+# 重启机器人（pkill -9 -x XRK-Yunzai，守护脚本会拉起）
 ```
-
-装好后打开网页后台 →「🧩 扩展」→ App 管理 →「打开」，即可看到移动端页面。
 
 ## 扩展 API（均需登录，挂在 `/api/ext/app-manager`）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/status` | 插件状态、默认模型、provider 数、扩展数 |
+| GET | `/status` | 默认模型 / 模型数 / Agent 开关 / AI 群数 |
+| GET | `/metrics` | CPU% / 内存 / 磁盘 / 负载 / 运行时长（250ms 采样） |
 | GET | `/models` | 模型列表（密钥只返回是否已配置） |
-| POST | `/default-model` | `{ "key": "deepseek-flash" }` 切换默认模型 |
+| POST | `/default-model` | `{ "key": "deepseek-flash" }` 切换默认模型（CSRF） |
 
 ## 构建 APK
 
 ```bash
 cd android
-sh build.sh          # 产出 ai0-app.apk
+AI0APP_KS=/path/ai0app.keystore AI0APP_KS_PASS=xxx sh build.sh
 ```
 
-依赖与 SBZYB 助手相同的无 Gradle 工具链（aapt2 / android.jar / d8 / apksigner）。
-脚本里 `AAPT2` 用了 `qemu-x86_64 -L /opt/x86` 前缀（Alpine aarch64 环境）；普通 x86_64 机器删掉该前缀即可。
-
-## 客户端说明
-
-- 首次启动加载 `http://45.192.98.189:9178/`（网页后台）
-- **长按页面**可修改服务器地址（会保存到本地）
-- 登录一次后 Cookie 持久化，下次直接进后台
-- 支持返回键后退、文件上传（系统选择器）
+依赖 aapt2 / android.jar / d8 / apksigner（脚本里 aapt2 默认带 `qemu-x86_64` 前缀，x86_64 机器删掉即可）。
+keystore 不入库（CN=AI0）。
 
 ## 许可
 
